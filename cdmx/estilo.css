@@ -1,0 +1,17 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f0f4ff;
+  padding: 20px;
+}
+h2 {
+  color: #2563eb;
+  text-align: center;
+}
+#map {
+  height: 600px;
+  width: 100%;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+

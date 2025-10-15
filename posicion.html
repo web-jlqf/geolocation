@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Mapa con Geolocalización</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    #map {
+      height: 400px;
+      width: 100%;
+      margin: 20px auto;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f0f4ff;
+    }
+    h2 {
+      color: #2563eb;
+    }
+  </style>
+</head>
+<body>
+  <h2>Tu ubicación en el mapa</h2>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(function(position) {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+
+        const map = L.map('map').setView([lat, lon], 13);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        L.marker([lat, lon])
+          .addTo(map)
+          .bindPopup("¡Estás aquí!")
+          .openPopup();
+      }, function(error) {
+        alert("No se pudo obtener tu ubicación: " + error.message);
+      });
+    } else {
+      alert("Tu navegador no soporta geolocalización.");
+    }
+  </script>
+</body>
+</html>
+

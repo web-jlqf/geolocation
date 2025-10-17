@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CDMX | Puntos por Alcaldía (Leaflet + Clustering)</title>
+
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+    defer
+  ></script>
+
+  <!-- Leaflet.markercluster -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+  />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+  />
+  <script
+    src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"
+    defer
+  ></script>
+
+  <style>
+    /* ===== Estilos solicitados (con mínimos ajustes) ===== */
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: linear-gradient(135deg, #f0f4ff, #e6f7ff);
+      color: #222;
+    }
+    .wrap {
+      max-width: 680px;
+      margin: 40px auto;
+      padding: 0 12px;
+      display: grid;
+      gap: 16px;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e3e6ee;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 6px 18px rgba(0,0,0,.08);
+    }
+    .title {
+      margin: 0 0 12px;
+      font-size: 20px;
+      color: #2563eb;
+    }
+    .form { display: grid; gap: 12px; }
+    .row  { display: grid; gap: 6px; }
+    .row span { font-size: 14px; color: #444; }
+
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #ccd3e0;
+      border-radius: 8px;
+      outline: none;
+      background: #fbfcff;
+      box-sizing: border-box;
+    }
+    input[type="text"]:focus, select:focus {
+      border-color: #2563eb;
+      background: #ffffff;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 8px 0 0;
+    }
+    .btn {
+      padding: 10px 14px;
+      font-size: 14px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: #2563eb;
+      color: #fff;
+    }
+    .btn:hover { background: #1d4ed8; }
+    .btn.ghost {
+      background: #eef2ff;
+      color: #0f172a;
+      border: 1px solid #dbe2f2;
+    }
+
+    .msg {
+      min-height: 18px;
+      font-size: 14px;
+      color: #555;
+    }
+
+    /* ===== Mapa ===== */
+    #map {
+      width: 100%;
+      height: 70vh;
+      border-radius: 12px;
+      border: 1px solid #e3e6ee;
+      box-shadow: 0 6px 18px rgba(0,0,0,.08);
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid #ccd3e0;
+      border-radius: 20px;
+      padding: 6px 10px;
+      background: #fbfcff;
+      font-size: 13px;
+    }
+    .chip input { margin: 0; }
+
+    .muted { color: #6b7280; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2 class="title">Puntos por Alcaldía (Leaflet + Clustering)</h2>
+
+      <form class="form" id="filters">
+        <div class="row">
+          <span>Archivo JSON (ruta relativa):</span>
+          <input id="jsonPath" type="text" value="CDMX.json" placeholder="CDMX.json, data/cdmx.json, etc." />
+        </div>
+
+        <div class="row">
+          <span>Alcaldías:</span>
+          <div id="alcaldiasBox" class="chips">
+            <span class="muted">Cargando opciones…</span>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="applyBtn" type="button">Aplicar filtros</button>
+          <button class="btn ghost" id="selectAllBtn" type="button">Seleccionar todas</button>
+          <button class="btn ghost" id="clearBtn" type="button">Limpiar</button>
+          <button class="btn ghost" id="reloadBtn" type="button">Recargar JSON</button>
+        </div>
+
+        <div id="msg" class="msg"></div>
+      </form>
+    </div>
+
+    <div id="map" class="card"></div>
+  </div>
+
+  <script>
+    // ---- Configuración base ----
+    const DEFAULT_CENTER = [19.432608, -99.133209]; // Zócalo CDMX
+    const DEFAULT_ZOOM   = 11;
+    let rawData = [];
+    let cluster = null;
+    let map = null;
+
+    // Inicializa el mapa
+    function initMap() {
+      map = L.map('map').setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+
+      cluster = L.markerClusterGroup();
+      map.addLayer(cluster);
+    }
+
+    // Obtiene campo de alcaldía flexible (con/ sin acento, distinto casing)
+    function getAlcaldia(row) {
+      const keys = Object.keys(row);
+      // Intentos razonables
+      const candidates = ['alcaldía', 'alcaldia', 'Alcaldía', 'ALCALDÍA', 'ALCALDIA', 'Alcaldia'];
+      for (const c of candidates) {
+        if (keys.includes(c)) return row[c];
+      }
+      // Si no, intenta por aproximación
+      const found = keys.find(k => k.toLowerCase().includes('alcald'));
+      return found ? row[found] : undefined;
+    }
+
+    // Normaliza coordenadas
+    function toNum(x) {
+      if (typeof x === 'number') return x;
+      if (typeof x === 'string') return Number(x.replace(',', '.'));
+      return NaN;
+    }
+
+    function getCoords(row) {
+      const lat = row.latitud ?? row.Latitud ?? row.latitude ?? row.Latitude;
+      const lon = row.longitud ?? row.Longitud ?? row.longitude ?? row.Longitude;
+      return [toNum(lat), toNum(lon)];
+    }
+
+    // Obtiene set único de alcaldías
+    function uniqueAlcaldias(data) {
+      const set = new Set();
+      for (const r of data) {
+        const a = getAlcaldia(r);
+        if (a && String(a).trim() !== '') set.add(String(a).trim());
+      }
+      return Array.from(set).sort((a,b)=>a.localeCompare(b, 'es'));
+    }
+
+    // Crea chips (checkbox) de alcaldías
+    function renderAlcaldiasChips(list) {
+      const box = document.getElementById('alcaldiasBox');
+      box.innerHTML = '';
+      if (!list.length) {
+        box.innerHTML = '<span class="muted">No se encontraron alcaldías en el JSON.</span>';
+        return;
+      }
+      for (const a of list) {
+        const id = 'a_' + a.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\W+/g,'_');
+        const label = document.createElement('label');
+        label.className = 'chip';
+        label.innerHTML = `<input type="checkbox" value="${a}" /> <span>${a}</span>`;
+        box.appendChild(label);
+      }
+    }
+
+    function selectedAlcaldias() {
+      const checks = document.querySelectorAll('#alcaldiasBox input[type=checkbox]:checked');
+      return Array.from(checks).map(c => c.value);
+    }
+
+    function setMsg(text) {
+      document.getElementById('msg').textContent = text || '';
+    }
+
+    // Dibuja marcadores para las alcaldías filtradas
+    function drawMarkers(selected) {
+      cluster.clearLayers();
+      const inSel = new Set((selected || []).map(x => String(x)));
+      let added = 0;
+      const bounds = L.latLngBounds();
+
+      for (const row of rawData) {
+        const a = getAlcaldia(row);
+        if (!inSel.size || inSel.has(String(a))) {
+          const [lat, lon] = getCoords(row);
+          if (Number.isFinite(lat) && Number.isFinite(lon)) {
+            const marker = L.marker([lat, lon]);
+            const id  = row.id ?? row.ID ?? row.Id ?? '';
+            const prog = row.programa ?? row.Programa ?? row.program ?? row.Program ?? '';
+            marker.bindPopup(`
+              <div style="min-width:220px">
+                <strong>${prog || '(sin programa)'}</strong>
+                <div><small>ID:</small> ${id}</div>
+                <div><small>Alcaldía:</small> ${a ?? '(desconocida)'}</div>
+                <div><small>Coordenadas:</small> ${lat.toFixed(6)}, ${lon.toFixed(6)}</div>
+              </div>
+            `);
+            cluster.addLayer(marker);
+            bounds.extend([lat, lon]);
+            added++;
+          }
+        }
+      }
+
+      if (added > 0) {
+        map.fitBounds(bounds.pad(0.08));
+        setMsg(`Mostrando ${added} punto(s).`);
+      } else {
+        map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+        setMsg('No hay puntos para mostrar con el filtro actual.');
+      }
+    }
+
+    // Carga JSON soportando dos formatos:
+    // 1) Un arreglo directo: [ {...}, {...} ]
+    // 2) Un objeto con clave "CDMX": { "CDMX": [ {...}, ... ] }
+    async function loadJSON(url) {
+      setMsg('Cargando JSON…');
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        rawData = Array.isArray(data) ? data
+               : Array.isArray(data?.CDMX) ? data.CDMX
+               : Array.isArray(data?.cdmx) ? data.cdmx
+               : [];
+
+        if (!rawData.length) {
+          throw new Error('El JSON no contiene un arreglo de datos ni una clave "CDMX" válida.');
+        }
+
+        const alas = uniqueAlcaldias(rawData);
+        renderAlcaldiasChips(alas);
+        setMsg(`JSON cargado. Alcaldías encontradas: ${alas.length}. Selecciona y presiona “Aplicar filtros”.`);
+      } catch (err) {
+        console.error(err);
+        rawData = [];
+        renderAlcaldiasChips([]);
+        setMsg(`Error al cargar JSON: ${err.message}`);
+      }
+    }
+
+    // Eventos UI
+    function wireEvents() {
+      document.getElementById('applyBtn').addEventListener('click', () => {
+        drawMarkers(selectedAlcaldias());
+      });
+      document.getElementById('selectAllBtn').addEventListener('click', () => {
+        document.querySelectorAll('#alcaldiasBox input[type=checkbox]').forEach(ch => ch.checked = true);
+        drawMarkers(selectedAlcaldias());
+      });
+      document.getElementById('clearBtn').addEventListener('click', () => {
+        document.querySelectorAll('#alcaldiasBox input[type=checkbox]').forEach(ch => ch.checked = false);
+        drawMarkers([]); // sin filtro
+      });
+      document.getElementById('reloadBtn').addEventListener('click', () => {
+        const path = document.getElementById('jsonPath').value.trim() || 'CDMX.json';
+        loadJSON(path);
+      });
+    }
+
+    // Bootstrap
+    window.addEventListener('DOMContentLoaded', () => {
+      initMap();
+      wireEvents();
+      // Carga inicial desde el input (por defecto "CDMX.json")
+      const path = document.getElementById('jsonPath').value.trim() || 'CDMX.json';
+      loadJSON(path);
+    });
+  </script>
+</body>
+</html>
